@@ -641,25 +641,38 @@ class ProductWindow:
     def refresh_products(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
-        sql = (
-            'SELECT p.product_id,p.product_name,c.category_name,'
-            'u.username AS seller_name,p.price,p.stock,p.status,'
-            'p.publish_time,p.description '
-            'FROM Product p '
-            'LEFT JOIN Category c ON p.category_id = c.category_id '
-            'LEFT JOIN `User` u ON p.seller_id = u.user_id '
-            'WHERE 1=1'
-        )
         params = []
         kw = self.keyword_var.get().strip()
         st = self.status_var.get().strip()
-        if kw:
-            sql += ' AND p.product_name LIKE %s'
-            params.append(f'%{kw}%')
-        if st and st != '全部':
-            sql += ' AND p.status = %s'
-            params.append(st)
-        sql += ' ORDER BY p.product_id DESC'
+
+        if st == '在售':
+            sql = (
+                'SELECT product_id, product_name, category_name, seller_name, '
+                'price, stock, status, publish_time, description '
+                'FROM v_available_product WHERE 1=1'
+            )
+            if kw:
+                sql += ' AND product_name LIKE %s'
+                params.append(f'%{kw}%')
+            sql += ' ORDER BY product_id DESC'
+        else:
+            sql = (
+                'SELECT p.product_id,p.product_name,c.category_name,'
+                'u.username AS seller_name,p.price,p.stock,p.status,'
+                'p.publish_time,p.description '
+                'FROM Product p '
+                'LEFT JOIN Category c ON p.category_id = c.category_id '
+                'LEFT JOIN `User` u ON p.seller_id = u.user_id '
+                'WHERE 1=1'
+            )
+            if kw:
+                sql += ' AND p.product_name LIKE %s'
+                params.append(f'%{kw}%')
+            if st == '已售':
+                sql += ' AND p.status = %s'
+                params.append(st)
+            sql += ' ORDER BY p.product_id DESC'
+
         conn = db_conn()
         try:
             with conn.cursor() as cur:
