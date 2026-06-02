@@ -553,7 +553,6 @@ class ProductWindow:
             ('查看待下单列表', self.show_cart),
             ('收藏选中商品', self.favorite_product),
             ('查看选中商品评价', self.view_product_reviews),
-            ('订单页评价', self.show_my_orders),
             ('删除选中商品', self.delete_product),
             ('我的收藏', self.show_my_favorites),
             ('我的评价', self.show_my_reviews),
@@ -1083,17 +1082,26 @@ class ProductWindow:
                     """
                     SELECT
                         o.order_id AS 订单ID,
-                        p.product_name AS 商品名称,
-                        oi.quantity AS 数量,
-                        oi.deal_price AS 成交单价,
+                        COUNT(oi.order_item_id) AS 明细数,
+                        SUM(oi.quantity) AS 商品总数,
+                        GROUP_CONCAT(p.product_name ORDER BY oi.order_item_id SEPARATOR '、') AS 商品概览,
                         o.total_amount AS 总金额,
                         o.status AS 订单状态,
                         o.address AS 收货地址,
-                        o.order_time AS 下单时间
+                        o.order_time AS 下单时间,
+                        CASE WHEN r.review_id IS NULL THEN '未评价' ELSE '已评价' END AS 评价状态
                     FROM OrderInfo o
                     JOIN OrderItem oi ON o.order_id = oi.order_id
                     JOIN Product p ON oi.product_id = p.product_id
+                    LEFT JOIN Review r ON r.order_id = o.order_id
                     WHERE o.buyer_id = %s
+                    GROUP BY
+                        o.order_id,
+                        o.total_amount,
+                        o.status,
+                        o.address,
+                        o.order_time,
+                        r.review_id
                     ORDER BY o.order_id DESC
                     """,
                     (self.current_user['user_id'],),
@@ -1104,9 +1112,9 @@ class ProductWindow:
         win = GridWindow(
             self.root,
             '我的订单',
-            ('订单ID', '商品名称', '数量', '成交单价', '总金额', '订单状态', '收货地址', '下单时间'),
+            ('订单ID', '明细数', '商品总数', '商品概览', '总金额', '订单状态', '收货地址', '下单时间', '评价状态'),
             [tuple(r.values()) for r in rows],
-            {'商品名称': 180, '收货地址': 160, '下单时间': 180},
+            {'商品概览': 260, '收货地址': 160, '下单时间': 180},
             actions=[
                 {'text': '评价选中订单', 'command': lambda: self.review_order_from_window(win)},
                 {'text': '查看订单明细', 'command': lambda: self.view_order_items(win)},
@@ -1177,15 +1185,28 @@ class ProductWindow:
                     """
                     SELECT
                         oi.order_item_id AS 明细ID,
+                        p.product_id AS 商品ID,
                         p.product_name AS 商品名称,
+                        c.category_name AS 商品类别,
+                        u.username AS 卖家,
                         oi.quantity AS 数量,
-                        oi.deal_price AS 成交单价
+                        oi.deal_price AS 成交单价,
+                        oi.quantity * oi.deal_price AS 明细小计,
+                        p.description AS 商品描述,
+                        o.total_amount AS 订单总金额,
+                        o.status AS 订单状态,
+                        o.address AS 收货地址,
+                        o.order_time AS 下单时间
                     FROM OrderItem oi
+                    JOIN OrderInfo o ON oi.order_id = o.order_id
                     JOIN Product p ON oi.product_id = p.product_id
+                    LEFT JOIN Category c ON p.category_id = c.category_id
+                    LEFT JOIN `User` u ON p.seller_id = u.user_id
                     WHERE oi.order_id = %s
+                      AND o.buyer_id = %s
                     ORDER BY oi.order_item_id
                     """,
-                    (order_id,),
+                    (order_id, self.current_user['user_id']),
                 )
                 rows = cur.fetchall()
         finally:
@@ -1194,9 +1215,20 @@ class ProductWindow:
         GridWindow(
             self.root,
             f'订单 {order_id} 的明细',
-            ('明细ID', '商品名称', '数量', '成交单价'),
+            (
+                '明细ID', '商品ID', '商品名称', '商品类别', '卖家', '数量',
+                '成交单价', '明细小计', '商品描述', '订单总金额', '订单状态',
+                '收货地址', '下单时间',
+            ),
             [tuple(r.values()) for r in rows],
-            {'商品名称': 220},
+            {
+                '商品名称': 180,
+                '商品类别': 110,
+                '卖家': 100,
+                '商品描述': 260,
+                '收货地址': 180,
+                '下单时间': 180,
+            },
         )
 
     def delete_product(self):
